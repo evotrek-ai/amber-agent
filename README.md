@@ -1,1 +1,1 @@
-# AmberCli
+# amber-agent
