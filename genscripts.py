@@ -314,4 +314,4 @@ if __name__ == "__main__":
     workdir = sys.argv[1]
     ligand = sys.argv[2]
     os.chdir(workdir)
-    gen_scripts(ligand, None, None, None, None)
+    gen_scripts(ligand, None, {"nstlim": 5000}, {"nstlim": 5000}, {"nstlim": 5000})

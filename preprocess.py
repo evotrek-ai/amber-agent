@@ -4,37 +4,70 @@ import shutil
 import sys
 import subprocess
 from typing import Dict, TextIO
-from Bio.PDB import PDBParser, PDBIO, Select
+from Bio.PDB import PDBParser, PDBIO, Select, is_aa
 
-ACCEPTED_DNA_RESIDUES_LOWER = ('da', 'dc', 'dg', 'dt')
-ACCEPTED_RNA_RESIDUES_LOWER = {'a', 'c', 'g', 'u'} 
+# --- Define Sets for Standard Base Residue Names (lowercase) ---
+# These sets now contain only the core base names
+RNA_BASE_NAMES_LOWER = {'a', 'c', 'g', 'u', 'ra', 'rc', 'rg', 'ru'}
+DNA_BASE_NAMES_LOWER = {'da', 'dc', 'dg', 'dt'}
+WATER_RESIDUES_LOWER = {"hoh", "wat", "h2o", "tip", "tip3", "tip3p", "tip4p", "spc"}
+# ----------------------------------------------------------
+
+# --- Helper Functions for Nucleic Acid Checks ---
+def is_dna_residue(resname_lower, base_dna_names):
+    """Checks if a residue name matches a base DNA name optionally followed by digits."""
+    for base_name in base_dna_names:
+        if resname_lower.startswith(base_name):
+            suffix = resname_lower[len(base_name):]
+            # Check if the suffix is empty OR consists only of digits
+            if not suffix or suffix.isdigit():
+                return True
+    return False
+
+def is_rna_residue(resname_lower, base_rna_names):
+    """Checks if a residue name matches a base RNA name optionally followed by digits."""
+    for base_name in base_rna_names:
+        if resname_lower.startswith(base_name):
+            suffix = resname_lower[len(base_name):]
+            # Check if the suffix is empty OR consists only of digits
+            if not suffix or suffix.isdigit():
+                return True
+    return False
+# ------------------------------------------------
+
 
 class NonSmallMoleculeSelector(Select):
-    """选择生物大分子（蛋白/DNA/RNA）、水和离子"""
+    """Selects biological macromolecules (Protein/DNA/RNA), water, and ions."""
     def accept_residue(self, residue):
-        resname: str = residue.resname.strip().lower()
-        is_protein = residue.has_id("CA")
-        is_rna_acid = resname in ACCEPTED_RNA_RESIDUES_LOWER
-        is_dna_acid = resname.startswith(ACCEPTED_DNA_RESIDUES_LOWER)
-        is_water = (resname == "hoh" or resname == "wat")
-        is_ion = (len(residue) == 1 and not is_water) 
+        resname_lower: str = residue.resname.strip().lower()
+        resname_upper: str = residue.resname.strip()
+
+        is_protein = is_aa(resname_upper, standard=True)
+
+        # Use helper functions for nucleic acid checks
+        is_dna_acid = is_dna_residue(resname_lower, DNA_BASE_NAMES_LOWER)
+        is_rna_acid = is_rna_residue(resname_lower, RNA_BASE_NAMES_LOWER)
+
+        is_water = resname_lower in WATER_RESIDUES_LOWER
+        is_ion = (len(residue) == 1 and not is_water)
+
         return is_protein or is_rna_acid or is_dna_acid or is_water or is_ion
 
 class SmallMoleculeSelector(Select):
-    """选择小分子配体（排除水、离子和标准残基）"""
+    """Selects small molecule ligands (excluding water, ions, and standard protein/NA)."""
     def accept_residue(self, residue):
-        resname: str = residue.resname.strip().lower()
-        
-        # Common water residue names in PDB files
-        WATER_RESIDUES = {"hoh", "wat", "h2o", "tip", "tip3", "tip3p", "tip4p", "spc"}
-        
-        is_protein = residue.has_id("CA")
-        is_rna_acid = resname in ACCEPTED_RNA_RESIDUES_LOWER
-        is_dna_acid = resname.startswith(ACCEPTED_DNA_RESIDUES_LOWER)
-        is_water = resname in WATER_RESIDUES
+        resname_lower: str = residue.resname.strip().lower()
+        resname_upper: str = residue.resname.strip()
+
+        is_protein = is_aa(resname_upper, standard=True)
+
+        # Use helper functions for nucleic acid checks
+        is_dna_acid = is_dna_residue(resname_lower, DNA_BASE_NAMES_LOWER)
+        is_rna_acid = is_rna_residue(resname_lower, RNA_BASE_NAMES_LOWER)
+
+        is_water = resname_lower in WATER_RESIDUES_LOWER
         is_ion = (len(residue) == 1 and not is_water)
-        
-        # 如果不是蛋白质、核酸、水或离子，则认为是小分子
+
         return not (is_protein or is_rna_acid or is_dna_acid or is_water or is_ion)
 
 def process_pdb_file(input_file, output_prefix):
@@ -118,21 +151,26 @@ def get_small_molecules(pdb_file):
     for model in structure:
         for chain in model:
             for residue in chain:
-                # 检查是否为蛋白质残基
-                if residue.has_id('CA'):  # 蛋白质残基通常有CA原子
+                resname_lower = residue.resname.lower()
+                resname_upper = residue.resname.upper()
+                is_protein = is_aa(resname_upper, standard=True)
+                if is_protein:
                     continue
-                # 检查是否为RNA残基
-                elif residue.resname in ACCEPTED_RNA_RESIDUES_LOWER:
+
+                is_dna_acid = is_dna_residue(resname_lower, DNA_BASE_NAMES_LOWER)
+                if is_dna_acid:
                     continue
-                # 检查是否为DNA残基
-                elif residue.resname.startswith(ACCEPTED_DNA_RESIDUES_LOWER):
+
+                is_rna_acid = is_rna_residue(resname_lower, RNA_BASE_NAMES_LOWER)
+                if is_rna_acid:
                     continue
-                # 检查是否为水分子
-                elif residue.resname == "HOH" or residue.resname == "WAT":
+
+                is_water = resname_lower in WATER_RESIDUES_LOWER
+                if is_water:
                     continue
+                                
                 # 其他情况认为是小分子
-                else:
-                    small_molecules.append(residue.resname)
+                small_molecules.append(residue.resname)
     
     # 去重并统计数量
     unique_small_molecules = list(set(small_molecules))

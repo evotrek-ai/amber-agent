@@ -1,3 +1,3 @@
 # Amber, Simplified
 
-Amber is awsome, but it's complex. This repo is to make our life easier by simplifying the using of Amber.
+Amber is complex, we are trying to make it simple. 
